@@ -1,0 +1,80 @@
+# Per-directory security-update scoping.
+#
+# Each npm entry declares a `security` group scoped to its own directory.
+# Without one, the repo-level "grouped security updates" default builds a SINGLE
+# npm PR spanning every directory -- which is the blast radius behind every
+# cross-directory manifest corruption: one resolver run writing decisions made
+# for one directory into the manifests of the others.
+#
+# It has to be on EVERY entry. One entry left without a security group falls
+# back to the repo-level grouping for its ecosystem, which is the behaviour this
+# is removing.
+
+version: 2
+
+updates:
+  # ===== npm: application root =====
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'daily'
+    target-branch: 'develop'
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 10
+    groups:
+      production-patches:
+        dependency-type: 'production'
+        update-types: ['patch']
+      production-minors:
+        dependency-type: 'production'
+        update-types: ['minor']
+      development-deps:
+        dependency-type: 'development'
+        update-types: ['minor', 'patch']
+      # Scopes security updates to THIS directory.
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+
+  # ===== npm: a serverless functions workspace =====
+  - package-ecosystem: 'npm'
+    directory: '/functions'
+    schedule:
+      interval: 'daily'
+    target-branch: 'develop'
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 10
+    groups:
+      production-patches:
+        dependency-type: 'production'
+        update-types: ['patch']
+      production-minors:
+        dependency-type: 'production'
+        update-types: ['minor']
+      development-deps:
+        dependency-type: 'development'
+        update-types: ['minor', 'patch']
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+
+  # ===== npm: an end-to-end test suite =====
+  - package-ecosystem: 'npm'
+    directory: '/e2e'
+    schedule:
+      interval: 'daily'
+    target-branch: 'develop'
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 10
+    groups:
+      development-deps:
+        dependency-type: 'development'
+        update-types: ['minor', 'patch']
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+    ignore:
+      # The suite runs on the same runtime major as the application it drives,
+      # so its type packages track that major rather than the newest published.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']

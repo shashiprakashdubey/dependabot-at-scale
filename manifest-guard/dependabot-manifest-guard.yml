@@ -1,0 +1,49 @@
+# Runs the manifest guard on every pull request Dependabot opens.
+#
+# Two reasons this exists as a CI job rather than a review habit:
+#   1. a Dependabot PR's description is not a complete account of its diff, and
+#      the extra edits (downgrades, undocumented majors, injected packages) are
+#      easy to miss in a large lockfile change;
+#   2. `ignore` + `update-types` in dependabot.yml applies to version updates
+#      only. Security updates walk straight through every semver-major hold,
+#      so the hold is a wish until something enforces it.
+#
+# Scoped to PRs authored by dependabot[bot]; human PRs skip the job. A PR that
+# only touches the lockfile passes trivially. Whether a red result blocks the
+# merge is a branch-protection decision -- decide it on purpose.
+
+name: Dependabot manifest guard
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  manifest-guard:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      # The guard needs the merge-base and every commit message on the PR.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - run: pip install --quiet pyyaml
+
+      # Self-test first: a guard that someone edited on this branch has to prove
+      # it still catches anything before its verdict means something.
+      - name: Guard self-test
+        run: python3 test_check_dependabot_manifest_edits.py
+        working-directory: .github/scripts
+
+      - name: Compare manifest edits with the PR trailers and the configured holds
+        env:
+          BASE: ${{ github.base_ref }}
+        run: python3 .github/scripts/check_dependabot_manifest_edits.py --repo-root . --base-ref "origin/${BASE}"

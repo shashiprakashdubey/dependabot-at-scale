@@ -1,0 +1,56 @@
+# Directory coverage expressed as GLOBS, not one hand-written block per directory.
+#
+# Why: a per-directory list drifts, and nobody can see that it has. Dependabot
+# reads this file ONLY from the default branch, so a list corrected on a working
+# branch is not corrected at all -- and a directory that is missing from it
+# receives no dependency updates and no CVE alerts, silently, for as long as the
+# drift lasts. Fixing the list again leaves that mechanism intact; replacing the
+# list is what removes it.
+#
+# The globs below must expand to exactly the manifest directories that exist and
+# to nothing else. A new directory following the `*-stack` convention is picked
+# up automatically; anything that does NOT follow it still has to be listed here,
+# and `check_coverage.py` fails CI if it is not.
+#
+# If you are editing this: one unrecognised key causes GitHub to drop the
+# ENTIRE file without any error, switching every directory off at once. Run
+# `check_coverage.py` before pushing -- it checks BOTH that the globs expand to
+# exactly the manifest set AND that every key is one Dependabot accepts, which is
+# the half that catches a typo'd `dependancy-type`. It is not full schema
+# validation: it checks key NAMES, not value shapes.
+
+version: 2
+
+updates:
+  - package-ecosystem: 'pip'
+    directories:
+      - '/*-stack'              # every directory following the convention
+      - '/legacy-service'       # predates the convention
+      - '/functions/handler-*'  # nested manifests
+    schedule:
+      interval: 'weekly'
+    groups:
+      toolkit:
+        patterns:
+          - 'example-sdk'
+          - 'example-sdk-*'
+        update-types: ['patch', 'minor']
+      everything-else:
+        patterns: ['*']
+        update-types: ['patch', 'minor']
+    # NOT a per-directory limit. `directories` collapses many blocks into ONE
+    # updates entry, so this cap is the AGGREGATE across all of them.
+    open-pull-requests-limit: 30
+    versioning-strategy: increase-if-necessary
+    labels: ['dependencies', 'python']
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    groups:
+      github-actions:
+        patterns: ['*']
+        update-types: ['patch', 'minor']
+    open-pull-requests-limit: 5
+    labels: ['dependencies', 'github-actions']

@@ -1,0 +1,153 @@
+# Illustrative Dependabot config for a multi-ecosystem repository.
+#
+# Grouping policy, applied to every ecosystem below:
+#   - patch + minor are batched, so routine refreshes arrive as one reviewable PR
+#   - MAJORS are in no group, so each falls through as its own PR and gets a
+#     deliberate review of its breaking changes
+#   - dev dependencies batch separately from runtime, so a linter bump never
+#     waits on a review of a runtime SDK
+#   - EXCEPTION: lockstep families (e.g. a compiler toolchain) get a dedicated
+#     MAJOR group, because per-package major PRs for a family that must move
+#     together are individually unmergeable
+#
+# A group with `patterns: ['*']` and no `update-types` sweeps majors into the
+# batch. That is what produces the unmergeable "bump the dependencies group
+# with 63 updates" PR.
+
+version: 2
+
+updates:
+  # ===== npm: application root =====
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    target-branch: 'develop'
+    versioning-strategy: increase-if-necessary
+    # Raised to leave room for the majors that now open individually,
+    # alongside the three grouped PRs below.
+    open-pull-requests-limit: 10
+    groups:
+      production-patches:
+        dependency-type: 'production'
+        update-types: ['patch']
+      production-minors:
+        dependency-type: 'production'
+        update-types: ['minor']
+      development-deps:
+        dependency-type: 'development'
+        update-types: ['minor', 'patch']
+      # Lockstep family: these packages share a version line and must cross a
+      # major together, so group the majors rather than isolating them.
+      babel-major:
+        patterns: ['@babel/*']
+        update-types: ['major']
+      # Scope security updates to THIS directory — see ../security-update-scoping/
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+    ignore:
+      # Every hold records why it exists and what lifts it. An ignore entry
+      # with no comment becomes permanent.
+      #
+      # Type packages that describe a runtime must track the DEPLOYED runtime
+      # major, not the newest published one: otherwise the compiler checks
+      # against APIs that do not exist at runtime and passes code that crashes
+      # in production. The trigger to bump is upgrading the runtime itself —
+      # bundle it into that work, not a standalone PR.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+
+      # A UI component library capped by a peer dependency: the renderer
+      # package caps it at the current major, so bumping breaks every render
+      # path. Lift when the renderer publishes support for the next major.
+      - dependency-name: 'example-ui-core'
+        update-types: ['version-update:semver-major']
+
+      # Held for ALL update types, not just majors — the rare, justified case
+      # for a blanket hold. A parent package pins this EXACTLY, so the direct
+      # dependency must match that pin or the package manager installs two
+      # copies. It may only move in lockstep with the parent.
+      - dependency-name: 'example-pinned-pkg'
+
+  # ===== pip: a Poetry-managed service =====
+  #
+  # `dependency-type` routing works here because Poetry declares the split:
+  # [tool.poetry.dependencies] is production, and EVERY
+  # [tool.poetry.group.*.dependencies] table is classified as development.
+  - package-ecosystem: 'pip'
+    directory: '/service-a'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 10
+    versioning-strategy: increase-if-necessary
+    labels: ['dependencies', 'python']
+    groups:
+      python-dependencies:
+        dependency-type: 'production'
+        update-types: ['minor', 'patch']
+      python-dev-dependencies:
+        dependency-type: 'development'
+        update-types: ['minor', 'patch']
+
+  # ===== pip: directories with MIXED manifest shapes =====
+  #
+  # Grouped by `patterns` rather than `dependency-type`, because a prod/dev
+  # split only exists where the manifest format declares one — Poetry and
+  # Pipenv do, a bare requirements.txt does not. With a dependency-type split,
+  # every dependency in a requirements.txt directory matches NEITHER group and
+  # falls through as an individual PR against the limit below.
+  #
+  # `*` is a true catch-all: nothing can end up unrouted regardless of manifest
+  # shape. Order matters — a dependency joins the FIRST group it matches, so
+  # the specific pattern must precede the catch-all.
+  - package-ecosystem: 'pip'
+    directories:
+      - '/*-stack'
+      - '/functions/handler-*'
+    schedule:
+      interval: 'weekly'
+    groups:
+      toolkit:
+        patterns:
+          - 'example-sdk'
+          - 'example-sdk-*'
+        update-types: ['patch', 'minor']
+      everything-else:
+        patterns: ['*']
+        update-types: ['patch', 'minor']
+    # NOT a per-directory limit. `directories` collapses many blocks into ONE
+    # updates entry, so this cap is the AGGREGATE across all of them. Sizing it
+    # like a per-directory limit is silent under-delivery: Dependabot simply
+    # stops opening PRs.
+    open-pull-requests-limit: 30
+    versioning-strategy: increase-if-necessary
+    labels: ['dependencies', 'python']
+
+  # ===== Docker =====
+  - package-ecosystem: 'docker'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    groups:
+      docker-deps:
+        update-types: ['patch', 'minor']
+    ignore:
+      # Hold the base image on the current runtime major until the deliberate
+      # migration. Patch and digest refreshes of the current major still flow,
+      # so base-image security updates are unaffected.
+      - dependency-name: 'node'
+        update-types: ['version-update:semver-major']
+
+  # ===== GitHub Actions =====
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        # Major action bumps change runner behaviour and are reviewed one at a
+        # time, not inside a batch.
+        update-types: ['patch', 'minor']
+    labels: ['dependencies', 'github-actions']

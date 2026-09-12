@@ -1,0 +1,44 @@
+# The guards in this repo ship with tests, so the tests run here too.
+#
+# A guard without a test that goes red when the guard is broken is not a guard,
+# and a repository of guards that does not run its own tests is making a claim
+# it has not checked.
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 'Guard tests (Python ${{ matrix.python-version }})'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      # Both suites run standalone as well as under pytest, so no test runner
+      # is needed here.
+      - name: Directory coverage guard
+        run: python3 test_check_coverage.py
+        working-directory: directory-coverage
+
+      - name: Manifest guard
+        run: python3 test_check_dependabot_manifest_edits.py
+        working-directory: manifest-guard
